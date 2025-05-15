@@ -1,0 +1,57 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+.venv/
+.env/
+venv/
+
+# Python environment/version files
+.python-version
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Data and model artifacts
+data/
+phishing-bert-model/
+models/
+
+# Training checkpoints, logs, and outputs
+*.log
+*.out
+*.pth
+*.ckpt
+*.bin
+*.h5
+*.pt
+*.onnx
+
+# Transformers cache and Huggingface datasets
+.cache/
+**/.cache/
+
+# Lock files
+uv.lock
+poetry.lock
+Pipfile.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Other
+*.tmp
+*.bak
+
+# Ignore user-generated scripts or local configs
+*.local
+
+# If you want to keep sample data or models, use:
+# !data/sample/
+# !models/sample/

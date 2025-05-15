@@ -1,0 +1,13 @@
+# Central configuration for BERT phishing-site classification
+model_name: bert-base-uncased
+output_dir: phishing-bert-model
+max_length: 128
+train_batch_size: 8
+eval_batch_size: 8
+num_epochs: 50
+learning_rate: 0.0002
+logging_dir: ./logs
+save_total_limit: 2
+metric_for_best_model: eval_loss
+report_to: none
+early_stopping_patience: 5
