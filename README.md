@@ -15,9 +15,9 @@ This repository supports three model variants:
 ### Model Comparison (Test Set Results)
 | Model              | Accuracy | F1 Score | Disk Size   | Notable Tradeoffs          |
 |--------------------|----------|----------|-------------|---------------------------|
-| BERT (Teacher)     | 0.887    | 0.888    | 1.3G        | Best accuracy, slowest    |
-| Distilled Student  | 0.836    | 0.854    | 203M        | ~10x faster, 6x smaller   |
-| Quantized Student  | 0.838    | 0.856    | 61M         | Minimal loss, smallest    |
+| BERT (Teacher)     | 0.887    | 0.888    | 440M        | Best accuracy, slowest    |
+| Distilled Student  | 0.904    | 0.904    | 203M        | ~10x faster, 6x smaller   |
+| Quantized Student  | 0.904    | 0.904    | 61M         | Minimal loss, smallest    |
 
 > **Note:** Disk sizes are measured using `du -sh <model_dir>` and reflect the total space used by each model directory, including all necessary files for inference.
 
@@ -68,34 +68,84 @@ This repository supports three model variants:
               param.requires_grad = True
       ```
 4. **Training/Distillation:**
-    - Teacher: HuggingFace's `Trainer` API with early stopping and best model saving.
-    - Student: Custom PyTorch loop in `distill.py` using both hard and soft targets, early stopping, and best model restoration.
+    - Teacher: HuggingFace's `Trainer` API with early stopping and best model saving (metric configurable via `config.yaml`).
+    - Student: Custom PyTorch loop in `distill.py` using both hard and soft targets, early stopping, and best model restoration. Best model logic now robust to metric direction.
 5. **Quantization:**
-    - Loads the distilled student model in 4-bit mode using `BitsAndBytesConfig`.
+    - Loads the distilled student model in 4-bit mode using `BitsAndBytesConfig` via `quantize_student.py`. CLI overrides for model/output dir now supported.
 6. **Saving:**
     - All models and tokenizers are saved to their respective output directories.
+7. **Configuration & Overrides:**
+    - All scripts read from `config.yaml` by default, but `inference.py` and `quantize_student.py` support command-line overrides for key arguments (e.g., `--model_dir`, `--output_dir`).
+    - Distillation and quantization scripts expect relevant keys (e.g., `teacher_model`, `student_model`, `distill_output_dir`, etc.) in `config.yaml`.
+    - Error handling improved for missing config keys.
 
 ---
 
 ## Inference
 - All models support both batch and single-URL inference.
-- Use `--model_dir` to specify which model to load (teacher, distilled, or quantized).
+- Use `--model_dir` to specify which model to load (teacher, distilled, or quantized). This overrides the value in `config.yaml` if provided.
 - Outputs accuracy, F1, confusion matrix, and classification report for batch inference.
+- `--split` and `--input_text` can also be passed as CLI arguments if supported by the script, or set in `config.yaml`.
+- `--config` can be omitted if your script always uses `config.yaml` in the current directory.
 
 **Example Inference Commands:**
 ```bash
 # Teacher (full BERT)
-python inference.py --config config.yaml --split test --model_dir phishing-bert-model/
+uv run inference.py --model_dir phishing-bert-model
 
 # Distilled Student
-python inference.py --config config.yaml --split test --model_dir distilled-student
+uv run inference.py --model_dir distilled-student
 
 # Quantized Student
-python inference.py --config config.yaml --split test --model_dir quantized-student
+uv run inference.py --model_dir quantized-student
 
 # Single URL inference
-python inference.py --config config.yaml --input_text "http://example.com" --model_dir quantized-student
+uv run inference.py --input_text "http://example.com" --model_dir quantized-student
 ```
+
+> **Note:** The script uses the test set by default. The `--split` argument is not required.
+
+---
+
+## Quantization
+- To quantize a distilled student model safely:
+    ```bash
+    python quantize_student.py --model_dir distilled-student --output_dir quantized-student
+    ```
+  - If you do **not** specify `--output_dir`, the quantized model will always be saved to `quantized-student` (never overwriting your parent model).
+  - If you try to set `output_dir` to the same location as your input model (e.g., `phishing-bert-model` or `distilled-student`), the script will print an **error and exit**—your parent model is always protected.
+  - This prevents accidental overwrites of your original models.
+  - Uses 4-bit NF4 quantization via HuggingFace `BitsAndBytesConfig`.
+
+> **Warning:**
+> - If you see an error about `output_dir` matching `model_dir`, the script is blocking you from overwriting your parent model. To resolve, specify a unique `--output_dir` (or set it in `config.yaml`).
+> - Always use a unique folder for each quantized model. **Never** use your original model's directory as the output.
+
+> **Troubleshooting:**
+> - If you see `[ERROR] output_dir (...) is the same as model_dir (...)` and the script exits, you must choose a different output directory.
+> - This protection is strict: you cannot bypass it unless you modify the script.
+
+- Required config keys for distillation and quantization:
+    - `distill_output_dir`: Where to save the distilled student model
+    - `model_dir`: Path to model for quantization (can be set to distilled student)
+    - `output_dir`: Where to save the quantized model
+    - Other training hyperparameters as needed (see sample config)
+- CLI arguments always override config file values.
+- Example snippet:
+    ```yaml
+    teacher_model: phishing-bert-model
+    student_model: distilbert-base-uncased
+    distill_output_dir: distilled-student
+    model_dir: distilled-student
+    output_dir: quantized-student
+    max_length: 128
+    train_batch_size: 8
+    eval_batch_size: 8
+    num_epochs: 50
+    learning_rate: 0.0002
+    metric_for_best_model: f1
+    early_stopping_patience: 5
+    ```
 
 ---
 
@@ -237,7 +287,7 @@ uv pip install -r requirements.txt
 ---
 
 ## License
-[Add your license here]
+No license lil bro.
 
 ## Dataset
 - **Source:** [shawhin/phishing-site-classification](https://huggingface.co/datasets/shawhin/phishing-site-classification)

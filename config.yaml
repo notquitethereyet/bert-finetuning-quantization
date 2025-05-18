@@ -11,3 +11,11 @@ save_total_limit: 2
 metric_for_best_model: eval_loss
 report_to: none
 early_stopping_patience: 5
+
+# Distillation-specific keys
+teacher_model: phishing-bert-model
+student_model: distilbert-base-uncased
+n_layers: 4
+n_heads: 8
+# output_dir for distillation (where distilled student will be saved)
+distill_output_dir: distilled-student

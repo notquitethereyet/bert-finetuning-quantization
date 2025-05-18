@@ -42,21 +42,27 @@ def distillation_loss(student_logits, teacher_logits, true_labels, temperature, 
     return alpha * distill_loss + (1.0 - alpha) * hard_loss
 
 def main():
-    parser = argparse.ArgumentParser(description="Distillation for phishing-site classification")
-    parser.add_argument('--config', type=str, default='config.yaml', help='Path to config file')
-    parser.add_argument('--teacher_model', type=str, required=True, help='Path or HF hub id for teacher model')
-    parser.add_argument('--student_model', type=str, default='distilbert-base-uncased', help='HF model id for student')
-    parser.add_argument('--output_dir', type=str, default='distilled-student', help='Where to save the student model')
-    parser.add_argument('--n_layers', type=int, default=4, help='Number of layers for student')
-    parser.add_argument('--n_heads', type=int, default=8, help='Number of attention heads for student')
-    args = parser.parse_args()
-
-    config = load_config(args.config)
+    # All parameters must be set in config.yaml
+    config = load_config("config.yaml")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Required keys in config.yaml:
+    # - teacher_model: Path or HF hub id for teacher model
+    # - student_model: HF model id for student
+    # - output_dir: Where to save the student model
+    # - n_layers: Number of layers for student
+    # - n_heads: Number of attention heads for student
+    # - max_length, train_batch_size, eval_batch_size, learning_rate, num_epochs, etc.
+
+    teacher_model_path = config["teacher_model"]
+    student_model_id = config.get("student_model", "distilbert-base-uncased")
+    output_dir = config.get("output_dir", "distilled-student")
+    n_layers = config.get("n_layers", 4)
+    n_heads = config.get("n_heads", 8)
 
     # Load dataset
     data = load_dataset("shawhin/phishing-site-classification")
-    tokenizer = AutoTokenizer.from_pretrained(args.teacher_model)
+    tokenizer = AutoTokenizer.from_pretrained(teacher_model_path)
     max_length = config.get("max_length", 128)
     def preprocess(examples):
         return preprocess_function(examples, tokenizer, max_length)
@@ -69,12 +75,12 @@ def main():
     test_loader = DataLoader(tokenized_data['test'], batch_size=config.get('eval_batch_size', 8))
 
     # Teacher
-    teacher_model = AutoModelForSequenceClassification.from_pretrained(args.teacher_model).to(device)
+    teacher_model = AutoModelForSequenceClassification.from_pretrained(teacher_model_path).to(device)
     teacher_model.eval()
 
     # Student
-    student_config = DistilBertConfig.from_pretrained(args.student_model, n_layers=args.n_layers, n_heads=args.n_heads, num_labels=2)
-    student_model = DistilBertForSequenceClassification.from_pretrained(args.student_model, config=student_config).to(device)
+    student_config = DistilBertConfig.from_pretrained(student_model_id, n_layers=n_layers, n_heads=n_heads, num_labels=2)
+    student_model = DistilBertForSequenceClassification.from_pretrained(student_model_id, config=student_config).to(device)
 
     # Training setup
     optimizer = optim.Adam(student_model.parameters(), lr=config.get('learning_rate', 2e-4))
@@ -84,7 +90,13 @@ def main():
 
     metric_for_best_model = config.get('metric_for_best_model', 'eval_loss')
     patience = config.get('early_stopping_patience', 5)
-    best_metric = None
+    # Initialize best_metric for correct direction
+    if metric_for_best_model in ['accuracy', 'f1']:
+        best_metric = float('-inf')  # maximize
+        compare = lambda current, best: current > best
+    else:
+        best_metric = float('inf')   # minimize
+        compare = lambda current, best: current < best
     best_epoch = 0
     best_model_state = None
     epochs_no_improve = 0
@@ -118,7 +130,7 @@ def main():
         acc, prec, rec, f1 = evaluate_model(student_model, val_loader, device)
         val_metric = get_val_metric(acc, prec, rec, f1)
         print(f"Epoch {epoch+1}: Val Acc: {acc:.4f}, Prec: {prec:.4f}, Rec: {rec:.4f}, F1: {f1:.4f}")
-        if best_metric is None or (val_metric > best_metric):
+        if compare(val_metric, best_metric):
             best_metric = val_metric
             best_epoch = epoch
             best_model_state = {k: v.cpu().clone() for k, v in student_model.state_dict().items()}
@@ -126,7 +138,7 @@ def main():
         else:
             epochs_no_improve += 1
         if epochs_no_improve >= patience:
-            print(f"Early stopping triggered at epoch {epoch+1}. Best epoch: {best_epoch+1}")
+            print(f"Early stopping triggered at epoch {epoch+1}. Best epoch: {best_epoch+1} (best_metric={best_metric:.4f})")
             break
     # Restore best model
     if best_model_state is not None:
@@ -135,9 +147,10 @@ def main():
     acc, prec, rec, f1 = evaluate_model(student_model, test_loader, device)
     print(f"Test: Acc: {acc:.4f}, Prec: {prec:.4f}, Rec: {rec:.4f}, F1: {f1:.4f}")
     # Save student model
-    os.makedirs(args.output_dir, exist_ok=True)
-    student_model.save_pretrained(args.output_dir)
-    tokenizer.save_pretrained(args.output_dir)
+    distill_output_dir = config.get('distill_output_dir', 'distilled-student')
+    os.makedirs(distill_output_dir, exist_ok=True)
+    student_model.save_pretrained(distill_output_dir)
+    tokenizer.save_pretrained(distill_output_dir)
 
 if __name__ == "__main__":
     main()

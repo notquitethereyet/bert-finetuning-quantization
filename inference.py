@@ -77,18 +77,19 @@ def main() -> None:
     Main inference routine for phishing-site BERT classifier.
     Loads configuration, runs inference on dataset or custom text, and prints/saves results.
     """
-    parser = argparse.ArgumentParser(description="Inference for phishing BERT model")
-    parser.add_argument('--config', type=str, default='config.yaml', help='Path to config file')
-    parser.add_argument('--split', type=str, default='test', choices=['train','validation','test'], help='Dataset split to use')
-    parser.add_argument('--input_text', type=str, default=None, help='Custom text for inference (overrides dataset)')
-    parser.add_argument('--output_file', type=str, default=None, help='File to save predictions/metrics')
-    parser.add_argument('--model_dir', type=str, default=None, help='Directory of model to load (overrides config output_dir)')
+    import argparse
+    parser = argparse.ArgumentParser(description="Phishing-site BERT inference")
+    parser.add_argument('--model_dir', type=str, default=None, help='Directory of model to use for inference (overrides config.yaml)')
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    config = load_config("config.yaml")
     validate_config(config)
 
-    model_dir = args.model_dir if args.model_dir is not None else config["output_dir"]
+    split = config.get("split", "test")
+    input_text = config.get("input_text", None)
+    output_file = config.get("output_file", None)
+    # Use CLI argument if provided, else config.yaml
+    model_dir = args.model_dir if args.model_dir is not None else config.get("model_dir", config["output_dir"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     model = AutoModelForSequenceClassification.from_pretrained(model_dir)
@@ -98,22 +99,22 @@ def main() -> None:
     max_length = config["max_length"]
     batch_size = config["eval_batch_size"]
 
-    if args.input_text:
+    if input_text:
         # Single example inference
-        texts = [args.input_text]
+        texts = [input_text]
         preds, probs = predict_batch(texts, tokenizer, model, device, batch_size=1, max_length=max_length)
-        print(f"Input: {args.input_text}")
+        print(f"Input: {input_text}")
         print(f"Prediction: {id2label[preds[0]]} (prob={probs[0][preds[0]]:.3f})")
-        if args.output_file:
-            with open(args.output_file, 'w') as f:
-                json.dump({"input": args.input_text, "prediction": id2label[preds[0]], "prob": float(probs[0][preds[0]])}, f)
+        if output_file:
+            with open(output_file, 'w') as f:
+                json.dump({"input": input_text, "prediction": id2label[preds[0]], "prob": float(probs[0][preds[0]])}, f)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         return
 
     # Dataset inference
     dataset = load_dataset("shawhin/phishing-site-classification")
-    data = dataset[args.split]
+    data = dataset[split]
     urls = data["text"]
     true_labels = data["labels"]
     preds, probs = predict_batch(urls, tokenizer, model, device, batch_size=batch_size, max_length=max_length)
@@ -123,14 +124,14 @@ def main() -> None:
     cm = confusion_matrix(true_labels, preds)
     report = classification_report(true_labels, preds, target_names=[id2label[0], id2label[1]])
 
-    print(f"Accuracy on {args.split} set: {acc:.3f}")
-    print(f"F1 score on {args.split} set: {f1:.3f}")
+    print(f"Accuracy on {split} set: {acc:.3f}")
+    print(f"F1 score on {split} set: {f1:.3f}")
     print("Confusion Matrix:")
     print(cm)
     print("\nClassification Report:")
     print(report)
 
-    if args.output_file:
+    if output_file:
         results = {
             "accuracy": acc,
             "f1": f1,
@@ -138,7 +139,7 @@ def main() -> None:
             "classification_report": report,
             "predictions": [int(p) for p in preds]
         }
-        with open(args.output_file, 'w') as f:
+        with open(output_file, 'w') as f:
             json.dump(results, f, indent=2)
 
     # Resource cleanup
