@@ -221,7 +221,6 @@ python quantize_student.py --model_dir distilled-student --output_dir quantized-
 - Use for other binary sequence classification tasks with minimal changes.
 - All scripts support config-driven workflow for reproducibility.
 
----
 
 ## Requirements
 - Python 3.8+
