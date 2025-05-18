@@ -54,11 +54,20 @@ def predict_batch(
         batch = texts[i:i+batch_size]
         inputs = tokenizer(batch, padding=True, truncation=True, max_length=max_length, return_tensors="pt")
         inputs = {k: v.to(device) for k, v in inputs.items()}
-        with torch.no_grad():
-            outputs = model(**inputs)
-            logits = outputs.logits
-            probs = torch.softmax(logits, dim=1)
-            preds = torch.argmax(probs, dim=1).cpu().numpy()
+        # Remove token_type_ids if model does not accept it (e.g., DistilBERT)
+        try:
+            with torch.no_grad():
+                outputs = model(**inputs)
+        except TypeError as e:
+            if 'token_type_ids' in inputs:
+                del inputs['token_type_ids']
+                with torch.no_grad():
+                    outputs = model(**inputs)
+            else:
+                raise e
+        logits = outputs.logits
+        probs = torch.softmax(logits, dim=1)
+        preds = torch.argmax(probs, dim=1).cpu().numpy()
         all_preds.extend(preds)
         all_probs.extend(probs.cpu().numpy())
     return all_preds, all_probs
@@ -73,14 +82,16 @@ def main() -> None:
     parser.add_argument('--split', type=str, default='test', choices=['train','validation','test'], help='Dataset split to use')
     parser.add_argument('--input_text', type=str, default=None, help='Custom text for inference (overrides dataset)')
     parser.add_argument('--output_file', type=str, default=None, help='File to save predictions/metrics')
+    parser.add_argument('--model_dir', type=str, default=None, help='Directory of model to load (overrides config output_dir)')
     args = parser.parse_args()
 
     config = load_config(args.config)
     validate_config(config)
 
+    model_dir = args.model_dir if args.model_dir is not None else config["output_dir"]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = AutoTokenizer.from_pretrained(config["output_dir"])
-    model = AutoModelForSequenceClassification.from_pretrained(config["output_dir"])
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    model = AutoModelForSequenceClassification.from_pretrained(model_dir)
     model.to(device)
     model.eval()
     id2label = get_id2label(model)

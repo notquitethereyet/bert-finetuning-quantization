@@ -20,7 +20,12 @@ venv/
 # Data and model artifacts
 data/
 phishing-bert-model/
+distilled-student/
+quantized-student/
 models/
+# Inference and training outputs
+*.preds.json
+*.metrics.json
 
 # Training checkpoints, logs, and outputs
 *.log
