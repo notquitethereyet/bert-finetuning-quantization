@@ -1,87 +1,36 @@
 # BERT Phishing Site Classifier
 
 ## Overview
-This project implements a phishing-site classifier using BERT (Bidirectional Encoder Representations from Transformers). The goal is to accurately distinguish between "Safe" and "Not Safe" URLs using state-of-the-art NLP techniques, with a reproducible, configurable, and production-ready pipeline.
+A phishing-site classifier using BERT and its compressed variants. Distinguishes "Safe" vs. "Not Safe" URLs with a reproducible, configurable, and production-ready pipeline.
 
 ---
 
-## Model Variants and Compression Pipeline
+## Model Variants
+- **BERT (Teacher):** Highest accuracy, largest size.
+- **Distilled Student:** Smaller, faster DistilBERT trained via knowledge distillation.
+- **Quantized Student:** Distilled model compressed to 4-bit weights (HuggingFace BitsAndBytes).
 
-This repository supports three model variants:
-- **Full BERT (Teacher):** Highest accuracy, largest size.
-- **Distilled Student:** Smaller DistilBERT-based model, trained via knowledge distillation from the teacher.
-- **Quantized Student:** The distilled model further compressed to 4-bit weights using HuggingFace BitsAndBytes, minimizing memory and inference costs.
+| Model              | Accuracy | F1 Score | Disk Size | Speedup vs. BERT | Notes                       |
+|--------------------|----------|----------|-----------|------------------|-----------------------------|
+| BERT (Teacher)     | 0.887    | 0.888    | 440M      | 1.0x             | Best accuracy, slowest      |
+| Distilled Student  | 0.904    | 0.904    | 203M      | 3.6x             | 2x smaller, fast            |
+| Quantized Student  | 0.904    | 0.904    | 61M       | 3.3x             | Smallest, minimal loss      |
 
-### Model Comparison (Test Set Results)
-| Model              | Accuracy | F1 Score | Disk Size   | Notable Tradeoffs                  |
-|--------------------|----------|----------|-------------|-------------------------------------|
-| BERT (Teacher)     | 0.887    | 0.888    | 440M        | Best accuracy, slowest              |
-| Distilled Student  | 0.904    | 0.904    | 203M        | ~3.6x faster, 2x smaller            |
-| Quantized Student  | 0.904    | 0.904    | 61M         | ~3.3x faster, minimal loss, smallest|
-
-> **Note:** Disk sizes are measured using `du -sh <model_dir>` and reflect the total space used by each model directory, including all necessary files for inference.
-
-#### Confusion Matrices and Reports
-- See below for full classification reports and confusion matrices for each model.
+> **Note:** Disk size = total model directory (all files for inference).
 
 ---
 
-## Benchmark: Inference Speed
-
-| Model              | Avg. Batch Time (s) | Avg. Sample Time (s) | Relative Speedup vs. BERT |
-|--------------------|--------------------|----------------------|---------------------------|
-| BERT (Teacher)     | 0.0650             | 0.002033             | 1.0x (baseline)           |
-| Distilled Student  | 0.0180             | 0.000563             | 3.6x faster               |
-| Quantized Student  | 0.0194             | 0.000605             | 3.3x faster               |
-
-> **Methodology:**
-> - Measured on this hardware using batch size 32, 10 batches from the test set.
-> - All models run with PyTorch and HuggingFace Transformers.
-> - Actual speedup may vary by hardware and batch size.
-
-> **Note:** DistilBERT and quantized models do **not** support the `token_type_ids` input. The benchmarking code (and any inference code using DistilBERT) must remove `token_type_ids` from the input batch. See the Technical Pipeline section for more details.
-
----
-
-## Technical Pipeline
-
-### 1. Training the Teacher (BERT)
-- Standard supervised finetuning with HuggingFace Trainer.
-- Early stopping and best model checkpointing using `config.yaml` parameters.
-
-### 2. Knowledge Distillation
-- **Script:** `distill.py`
-- The student (DistilBERT) learns from both ground truth and the teacher's soft logits.
-- Custom distillation loss: weighted sum of KL divergence (soft targets) and cross-entropy (hard targets).
-- Early stopping and best model saving supported.
-
-### 3. Quantization
-- **Script:** `quantize_student.py`
-- Uses HuggingFace `BitsAndBytesConfig` to load the distilled model in 4-bit (nf4) mode.
-- Results in a 3-4x reduction in disk and memory usage with negligible accuracy loss.
-
----
-
-## Dataset
-- **Source:** [shawhin/phishing-site-classification](https://huggingface.co/datasets/shawhin/phishing-site-classification)
+## Dataset and Pipeline
+- **Dataset:** [shawhin/phishing-site-classification](https://huggingface.co/datasets/shawhin/phishing-site-classification)
 - **Splits:** `train`, `validation`, `test`
-- **Features:**
-    - `text`: URL string
-    - `labels`: 0 (Safe), 1 (Not Safe)
+- **Features:** `text` (URL), `labels` (0: Safe, 1: Not Safe)
+- **Pipeline:**
+  1. **Train Teacher:** Finetune BERT with HuggingFace Trainer (early stopping, best checkpoint).
+  2. **Distill Student:** `distill.py` trains DistilBERT from teacher logits + ground truth (custom loss). 
+  3. **Quantize:** `quantize_student.py` compresses the distilled model to 4-bit.
+  4. **Inference:** All models support batch/single-URL inference. Results: accuracy, F1, confusion matrix, classification report.
 
----
-
-## Finetuning & Distillation Process
-1. **Configuration:**
-    - All hyperparameters and paths are stored in `config.yaml` for easy reproducibility (see below).
-2. **Tokenization:**
-    - URLs are tokenized using the appropriate tokenizer, with truncation and padding to `max_length`.
-    - **Note:** DistilBERT and quantized models do **not** accept the `token_type_ids` argument. Any inference or benchmarking code must remove this key from the input batch. This is handled automatically in the provided scripts.
-3. **Parameter Freezing:**
-    - All BERT layers except the pooler are frozen:
-      ```python
-      for name, param in model.base_model.named_parameters():
-          param.requires_grad = False
+> **Note:** DistilBERT and quantized models do **not** use `token_type_ids`. Scripts handle this automatically.
           if "pooler" in name:
               param.requires_grad = True
       ```
@@ -335,49 +284,29 @@ No license lil bro.
     - Metrics: Accuracy and F1-score
 5. **Saving:**
     - Both model and tokenizer are saved to the configured output directory
-
----
-
-## Inference
-- Supports both batch inference on dataset splits and single-URL inference.
-- Loads the trained model and tokenizer from the output directory specified in `config.yaml`.
-- Outputs accuracy, F1, confusion matrix, and classification report for batch inference.
-
----
-
-## Configuration File (`config.yaml`)
-All major parameters are stored in `config.yaml`:
-```yaml
-model_name: bert-base-uncased
-output_dir: phishing-bert-model
-max_length: 128
-train_batch_size: 8
-eval_batch_size: 8
-num_epochs: 50
-learning_rate: 0.0002
-logging_dir: ./logs
-save_total_limit: 2
-metric_for_best_model: eval_loss
-report_to: none
-early_stopping_patience: 5
-```
-
----
-
-## Example Commands
-**Training:**
-```bash
-python train.py --config config.yaml
-```
-
-**Inference on test split:**
-```bash
 python inference.py --config config.yaml --split test
+python inference.py --config config.yaml --input_text "http://example.com"
 ```
 
-**Inference on a custom URL:**
+---
+
+## Requirements
+- Python 3.8+
+- transformers
+- datasets
+- scikit-learn
+- numpy
+- pyyaml
+- torch (with CUDA for GPU)
+- bitsandbytes (for quantization)
+
+**Install (recommended: [uv](https://github.com/astral-sh/uv))**
 ```bash
-python inference.py --config config.yaml --input_text "http://example.com"
+curl -Ls https://astral.sh/uv/install.sh | sh
+uv init
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
 ---
@@ -386,21 +315,18 @@ python inference.py --config config.yaml --input_text "http://example.com"
 - **Accuracy**: Proportion of correct predictions
 - **F1 Score**: Harmonic mean of precision and recall
 - **Confusion Matrix**: Breakdown of true/false positives/negatives
-- **Classification Report**: Precision, recall, F1, and support for each class
+- **Classification Report**: Precision, recall, F1, support per class
 
 ---
 
 ## Extensibility
-- Easily switch to other transformer models by changing `model_name` in `config.yaml`.
-- Adjust batch sizes, learning rate, or number of epochs in the config.
-- Add more metrics or callbacks in the training script as needed.
-- Use for other binary sequence classification tasks with minimal changes.
+- Change `model_name` in `config.yaml` for other transformers.
+- Adjust batch size, learning rate, epochs in config.
+- Add metrics/callbacks as needed.
+- Suitable for other binary sequence classification tasks.
 
 ---
 
-## Requirements
-- Python 3.8+
-- [transformers](https://github.com/huggingface/transformers)
 - [datasets](https://github.com/huggingface/datasets)
 - scikit-learn
 - numpy
