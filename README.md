@@ -13,16 +13,33 @@ This repository supports three model variants:
 - **Quantized Student:** The distilled model further compressed to 4-bit weights using HuggingFace BitsAndBytes, minimizing memory and inference costs.
 
 ### Model Comparison (Test Set Results)
-| Model              | Accuracy | F1 Score | Disk Size   | Notable Tradeoffs          |
-|--------------------|----------|----------|-------------|---------------------------|
-| BERT (Teacher)     | 0.887    | 0.888    | 440M        | Best accuracy, slowest    |
-| Distilled Student  | 0.904    | 0.904    | 203M        | ~10x faster, 6x smaller   |
-| Quantized Student  | 0.904    | 0.904    | 61M         | Minimal loss, smallest    |
+| Model              | Accuracy | F1 Score | Disk Size   | Notable Tradeoffs                  |
+|--------------------|----------|----------|-------------|-------------------------------------|
+| BERT (Teacher)     | 0.887    | 0.888    | 440M        | Best accuracy, slowest              |
+| Distilled Student  | 0.904    | 0.904    | 203M        | ~3.6x faster, 2x smaller            |
+| Quantized Student  | 0.904    | 0.904    | 61M         | ~3.3x faster, minimal loss, smallest|
 
 > **Note:** Disk sizes are measured using `du -sh <model_dir>` and reflect the total space used by each model directory, including all necessary files for inference.
 
 #### Confusion Matrices and Reports
 - See below for full classification reports and confusion matrices for each model.
+
+---
+
+## Benchmark: Inference Speed
+
+| Model              | Avg. Batch Time (s) | Avg. Sample Time (s) | Relative Speedup vs. BERT |
+|--------------------|--------------------|----------------------|---------------------------|
+| BERT (Teacher)     | 0.0650             | 0.002033             | 1.0x (baseline)           |
+| Distilled Student  | 0.0180             | 0.000563             | 3.6x faster               |
+| Quantized Student  | 0.0194             | 0.000605             | 3.3x faster               |
+
+> **Methodology:**
+> - Measured on this hardware using batch size 32, 10 batches from the test set.
+> - All models run with PyTorch and HuggingFace Transformers.
+> - Actual speedup may vary by hardware and batch size.
+
+> **Note:** DistilBERT and quantized models do **not** support the `token_type_ids` input. The benchmarking code (and any inference code using DistilBERT) must remove `token_type_ids` from the input batch. See the Technical Pipeline section for more details.
 
 ---
 
@@ -59,6 +76,7 @@ This repository supports three model variants:
     - All hyperparameters and paths are stored in `config.yaml` for easy reproducibility (see below).
 2. **Tokenization:**
     - URLs are tokenized using the appropriate tokenizer, with truncation and padding to `max_length`.
+    - **Note:** DistilBERT and quantized models do **not** accept the `token_type_ids` argument. Any inference or benchmarking code must remove this key from the input batch. This is handled automatically in the provided scripts.
 3. **Parameter Freezing:**
     - All BERT layers except the pooler are frozen:
       ```python
